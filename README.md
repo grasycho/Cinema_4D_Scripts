@@ -112,11 +112,6 @@ The script opens a **Cinema 4D dialog window** with the following sections:
 
 ---
 
-## 📄 License
-Released under the MIT License.  
-You are free to use, modify, and distribute this script in your projects.
-
-
 # 🦴 Mixamo Joint Name Cleaner for Cinema 4D
 
 This Cinema 4D Python script cleans up Mixamo joint names by removing unwanted numeric suffixes (e.g., `mixamorig1`, `mixamorig2`) and standardizing them back to `mixamorig`. This makes rigs cleaner, easier to read, and more consistent for animation workflows.
@@ -135,6 +130,3 @@ This Cinema 4D Python script cleans up Mixamo joint names by removing unwanted n
 
 ---
 
-
-if __name__ == '__main__':
-    main()
