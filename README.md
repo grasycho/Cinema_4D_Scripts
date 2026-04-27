@@ -1,6 +1,3 @@
-Here’s a polished `README.md` you can use to document the **Hierarchy Printer** Cinema 4D script:
-
-```markdown
 # 🗂 Cinema 4D Object Hierarchy Printer
 
 This Cinema 4D Python script prints the **entire object hierarchy** of your scene to the console. It recursively traverses all objects starting from the first object in the document and displays their names with indentation to reflect parent-child relationships.
