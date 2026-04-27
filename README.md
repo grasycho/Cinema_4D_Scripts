@@ -52,7 +52,7 @@ Null
 ## 📄 License
 Released under the MIT License.  
 You are free to use, modify, and distribute this script in your projects.
-```
+
 
 
 # 🎥 Advanced OpenPose Sequence Generator UI v4.1
