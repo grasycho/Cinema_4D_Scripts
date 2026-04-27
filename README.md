@@ -1,3 +1,63 @@
+Here’s a polished `README.md` you can use to document the **Hierarchy Printer** Cinema 4D script:
+
+```markdown
+# 🗂 Cinema 4D Object Hierarchy Printer
+
+This Cinema 4D Python script prints the **entire object hierarchy** of your scene to the console. It recursively traverses all objects starting from the first object in the document and displays their names with indentation to reflect parent-child relationships.
+
+---
+
+## ✨ Features
+- Recursively traverses the **Object Manager hierarchy**.
+- Prints object names with indentation to show structure.
+- Provides clear feedback if the scene is empty.
+- Simple and lightweight utility for debugging or documentation.
+
+---
+
+## 🚀 Usage
+1. Open **Cinema 4D**.
+2. Load a scene with objects.
+3. Run the script from the **Script Manager**.
+4. Check the **Console** (`Shift + F10`) to view the hierarchy output.
+
+---
+
+## 🛠 Example Output
+For a scene with a hierarchy like:
+
+```
+Null
+  Cube
+  Sphere
+    Cone
+```
+
+The console will display:
+
+```
+Null
+  Cube
+  Sphere
+    Cone
+```
+
+---
+
+## ⚠️ Notes
+- If no objects exist in the scene, the script will print:  
+  `No objects in scene.`
+- This script is read-only and does not modify the scene.
+- Useful for quickly inspecting complex hierarchies or debugging rig setups.
+
+---
+
+## 📄 License
+Released under the MIT License.  
+You are free to use, modify, and distribute this script in your projects.
+```
+
+
 # 🎥 Advanced OpenPose Sequence Generator UI v4.1
 
 This Cinema 4D Python script provides a user-friendly interface for generating **OpenPose-style skeleton sequences** directly from 3D rigs. It is designed to normalize bone names across different rigging conventions (Mixamo, AccuRig, iClone, Character Creator, etc.) and output clean pose data for AI training, motion analysis, or visualization.
@@ -78,44 +138,6 @@ This Cinema 4D Python script cleans up Mixamo joint names by removing unwanted n
 
 ---
 
-## 📜 Script Overview
-
-```python
-import c4d
-import re
-
-def clean_joint_names(op, doc):
-    """
-    Recursively iterates through the hierarchy, finds Joint objects, 
-    and removes numeric suffixes from Mixamo naming conventions.
-    """
-    while op:
-        if op.GetType() == c4d.Ojoint:
-            old_name = op.GetName()
-            new_name = re.sub(r'mixamorig\d+', 'mixamorig', old_name)
-
-            if new_name != old_name:
-                doc.AddUndo(c4d.UNDOTYPE_CHANGE, op)
-                op.SetName(new_name)
-                print(f"Renamed: {old_name} -> {new_name}")
-
-        clean_joint_names(op.GetDown(), doc)
-        op = op.GetNext()
-
-def main():
-    doc = c4d.documents.GetActiveDocument()
-    selected = doc.GetActiveObject()
-
-    if not selected:
-        c4d.gui.MessageDialog("Please select the root joint (e.g., Hips) before running the script.")
-        return
-
-    doc.StartUndo()
-    clean_joint_names(selected, doc)
-    doc.EndUndo()
-    c4d.EventAdd()
-
-    print("Mixamo joint name cleaning complete.")
 
 if __name__ == '__main__':
     main()
