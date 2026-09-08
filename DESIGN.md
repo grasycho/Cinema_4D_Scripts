@@ -1,149 +1,124 @@
 # Smart Script Browser — Cinema 4D 2026 Plugin (Research & Plan)
 
-Status: planning, v3. Phase 0 probe 1 has been run against a real install.
-Target confirmed: **Cinema 4D 2026.3.0.4** (`GetC4DVersion() = 2026304`), Windows.
+Status: planning, **v4 — re-scoped after Phase 0**. Probes 1–3 have run against the real install.
+Target: **Cinema 4D 2026.3.0.4** (`GetC4DVersion() = 2026304`), Windows, Python 3.11.4.
 
-Legend: `MEASURED` = confirmed by `tools/phase0_probe.py` on the target machine.
-`ASSUME` = still unverified. `OPEN` = probe run but answer not yet reported.
-
----
-
-## 0. Build-vs-reuse (decide this first)
-
-C4D ships two overlapping mechanisms:
-
-| Existing | Covers | Gaps |
-|---|---|---|
-| **Script Manager** + Command Manager shortcuts | running scripts, per-script hotkeys | flat list, no tags, no search, no metadata |
-| **Asset Browser** (+ Asset API — `maxon.AssetInterface`, `KeywordAssetInterface`, `CategoryAssetInterface`, `AssetDataBasesInterface`, all `MEASURED` present) | categories, keywords, favorites, smart folders, search, DB sync | scripts are not a native asset type; assets live in a database rather than plain `.py` files in git; heavyweight UI; no frecency, no context-awareness |
-
-**Options:** **A.** Own JSON index over plain `.py` files (recommended). **B.** Build on the Asset API — now confirmed technically viable, all five interfaces exist. **C.** Do nothing; use Asset Browser keywords + Command Manager shortcuts.
-
-Recommendation stands: **A**, for the git-tracked plain-file model and the ranking in §4. But §0 is still worth an hour of hands-on Asset Browser use before committing — C remains a legitimate outcome.
+Legend: `MEASURED` = confirmed on the target machine. `OPEN` = still unanswered.
 
 ---
 
-## 1. Environment (probe 1 results)
+## 0. What Phase 0 changed
+
+The plan began as "build a script index with categories, tags, metadata, a runner and a hotkey system." Probing the real application showed **C4D already provides most of that**. The project is now much smaller and should be built *on top of* C4D's registry, not beside it.
+
+| v1–v3 planned to build | Phase 0 finding |
+|---|---|
+| `scanner.py` — walk folders, mtime cache, incremental reindex | **Delete.** `GetScriptHead()` is a live tree C4D maintains (§2) |
+| `Category` model | **Delete.** `ID_SCRIPTFOLDER` nodes already form the tree |
+| `Script` model | **Thin.** `ID_PYTHONSCRIPT` nodes carry name, path, source |
+| `runner.py` (§3) | **Probably delete** — pending the one `OPEN` question |
+| §8 reserved plugin-ID block for hotkeys | **Delete.** `GetDynamicScriptID` already assigns per-script IDs |
+| Performance budget: 1000 scripts, < 2 s cold scan | **Delete.** The library is 18 scripts; there is no scan |
+| Native metadata to adopt for tags/descriptions | **Wrong** — see the correction in §3 |
+
+What genuinely remains missing from C4D, and is therefore the whole product: **tags, fuzzy search, ranking, descriptions, and a keyboard-driven panel.**
+
+---
+
+## 1. Environment (probe 1)
 
 | # | Assumption | Result |
 |---|---|---|
-| V1 | Python 3.11 | **MEASURED — correct.** `3.11.4 (MSC v.1929 64-bit)`, host `Cinema 4D.exe` |
-| V2 | No Qt bundled | **MEASURED — correct.** PySide6, PySide2, PyQt6, PyQt5, shiboken6, tkinter all absent. UI must be `c4d.gui`. Confirms PySide6 is only viable for an out-of-app companion tool (§6). |
-| V3 | Script Manager calls `main()` | **MEASURED — WRONG. It does not.** See §3. |
-| V4 | `doc`, `op`, `c4d` injected | **MEASURED — partly wrong.** Injected globals are exactly `['__builtins__', '__file__', '__name__', 'doc', 'op']`. `c4d` is **not** injected; scripts import it themselves. `__name__ == '__main__'`. `__file__ == 'scriptmanager'` — a literal string, not a path. |
-| V5 | C4D auto-wraps script execution in undo | **OPEN** — probe inserted the two nulls; the manual Ctrl+Z result has not been reported yet. Still the highest-risk unknown. |
-| V6 | No script-execution API exists | **MEASURED — wrong, or at least premature.** A whole script API surface exists. See §2. |
+| V1 | Python 3.11 | **Correct.** `3.11.4 (MSC v.1929 64-bit)` |
+| V2 | No Qt bundled | **Correct.** PySide6/PySide2/PyQt6/PyQt5/shiboken6/tkinter all absent. UI must be `c4d.gui`; PySide6 only for an out-of-app companion tool |
+| V3 | Script Manager calls `main()` | **WRONG — it does not.** All four repo scripts self-call via `if __name__ == '__main__'`, so a runner that also called `main()` would have run each **twice** |
+| V4 | `doc`, `op`, `c4d` injected | **Partly wrong.** Injected globals are exactly `__builtins__`, `__file__`, `__name__`, `doc`, `op`. `c4d` is **not** injected. `__file__ == 'scriptmanager'`, a literal string, not a path |
+| V5 | C4D auto-wraps execution in undo | **OPEN**, and now low priority — moot if §3 is deleted |
+| V6 | No script-execution API exists | **Wrong.** See §2 |
 
-**Paths (MEASURED).** `C4D_PATH_LIBRARY_USER` = `…\AppData\Roaming\Maxon\Maxon Cinema 4D 2026_1ABCDC12\library`. Note the **installation hash suffix** (`_1ABCDC12`): the folder name is machine-specific, so paths must always be resolved through `c4d.storage.GeGetC4DPath(c4d.C4D_PATH_LIBRARY_USER)` and never constructed from a version string. Scripts and plugins are `…\library\scripts` and `…\library\plugins`.
+**Paths.** `C4D_PATH_LIBRARY_USER` carries an installation hash (`Maxon Cinema 4D 2026_1ABCDC12`), so paths must always come from `GeGetC4DPath` — never built from a version string.
 
-**Symbols (MEASURED).** All 15 symbols §7 depends on are present: `CommandData`, `RegisterCommandPlugin`, `GeDialog`, `GeUserArea`, `TreeViewFunctions`, `CUSTOMGUI_TREEVIEW`, `DLG_TYPE_ASYNC`, `C4DThread`, `GeGetC4DPath`, `GetActiveDocument`, `EventAdd`, `BaseBitmap`, `MessageDialog`, `QuestionDialog`, `GeUpdateUI`. The architecture is buildable as designed.
-
----
-
-## 2. C4D's native script registry (probe 2 — this reframes the project)
-
-`GetScriptHead()` returns a live **`c4d.GeListHead`** (`MEASURED`): C4D maintains its own tree of script objects. Probe 2 confirmed the surrounding model:
-
-| Native mechanism | What it provides | What §7 planned to build |
-|---|---|---|
-| `GetScriptHead()` → `GeListHead` | the script index itself | `scanner.py` |
-| `ID_SCRIPTFOLDER` (1026688) nodes | a folder/category tree | `Category` model |
-| `ID_PYTHONSCRIPT` (1026256) nodes | per-script objects | `Script` model |
-| `PYTHONSCRIPT_SCRIPTNAME` / `_SCRIPTHELP` / `_SCRIPTPATH` / `_TEXT` | name, documentation, path, body | half of `metadata.py` |
-| `PYTHONSCRIPT_SHOWINMENU` / `_SCRIPTENABLE` | visibility, enable/disable | — |
-| `GetDynamicScriptID(bl)` → command ID | **per-script command IDs, already assigned** | the whole of §8's reserved ID block |
-| `SetActiveScriptObject` | "display in Script Manager" | "open in editor" |
-| `GeExecuteFile` / `GeExecuteProgram` | cross-platform open/reveal | per-OS branching in §10 |
-
-**This is most of the plumbing.** If probe 3 confirms the tree walks and `CallCommand(GetDynamicScriptID(node))` runs a script, then C4D already supplies the index, the category tree, the metadata store, execution, and per-script hotkeys — and this project shrinks to what C4D genuinely lacks: **tags, fuzzy search, frecency ranking and a better panel**, layered over the native registry rather than a parallel one.
-
-Consequences already firm:
-
-- **§8's plugin-ID procurement blocker likely dissolves** for per-script hotkeys. `GetDynamicScriptID` hands out the IDs.
-- **§3's hand-rolled runner may be deletable**, taking the V5 undo risk with it — if C4D runs the script through its own command path, undo is C4D's problem, correctly, for free.
-- **§6 partially resolved.** Native metadata is name + help + path. Tags and categories-beyond-folders are still ours to add. `SCRIPTMETA_NAME` / `SCRIPTMETA_DOCUMENTATION` exist but are not a file-header convention — no evidence C4D parses `.py` headers.
-- `LoadPythonScript` ("Load a python script") and `CreateNewPythonScript` ("Create a new temporary python script") remain untested.
-
-`tools/phase0_probe3_scripttree.py` walks the tree and reads every node's parameters. **Run it before writing any code.**
-
-### Scale correction
-
-The user library holds **17 scripts**, several of them duplicates or version-suffixed (`Fix_Mixamo_Names.py` in two places, `OpenPose…` in both spaced and underscored form, `Mixamo_Helper_06`, `Universal_Rig_Normalizer_v3`).
-
-At 17 scripts, the §5 performance budget (1000 scripts, cold scan < 2 s) is over-engineering, and frecency ranking has little to rank. The real pain the library shows is **duplication and versioning**, not search latency. This weakens the case for a heavy indexed browser and strengthens §0 option C. Worth confronting before Phase 1.
+**Symbols.** All 15 symbols the UI needs are present (`CommandData`, `GeDialog`, `GeUserArea`, `TreeViewFunctions`, `CUSTOMGUI_TREEVIEW`, `DLG_TYPE_ASYNC`, `C4DThread`, …).
 
 ---
 
-## 3. Runner specification (corrected by probe 1)
+## 2. C4D's native script registry (probes 2–3) — `MEASURED`
+
+`GetScriptHead()` returns a live `c4d.GeListHead`. Walking it with `GetFirst()` / `GetNext()` / `GetDown()` yields the complete tree:
 
 ```
-run(script_path):
-  src = read fresh from disk          # never cache; the file may have changed
-  ns  = {
-    "__name__": "__main__",           # MEASURED: matches Script Manager
-    "__file__": script_path,          # Script Manager sets the string
-                                      # 'scriptmanager'; a real path is strictly
-                                      # better and breaks nothing
-    "doc": c4d.documents.GetActiveDocument(),
-    "op":  doc.GetActiveObject(),
-  }
-  # Do NOT inject c4d — MEASURED: Script Manager does not, and every script
-  # imports it itself.
-  sys.path.insert(0, dirname(script_path))   # sibling imports; restore in finally
-  try:
-      exec(compile(src, script_path, "exec"), ns)
-      # Do NOT call main(). See below.
-  except Exception:
-      traceback -> C4D console + panel status line; never kill the dialog
-  finally:
-      restore sys.path
-      c4d.EventAdd()
+[SCRIPTFOLDER] …\library\scripts              dynamicID = -1
+  [PYTHONSCRIPT] Add Character Definition…    dynamicID = 600000013   TEXT 2018 chars
+  [PYTHONSCRIPT] Auto_T_Pose_Recovery…        dynamicID = 600000014   TEXT 4902 chars
+  [SCRIPTFOLDER] Batch Image To Plane MS      dynamicID = -1
+    [PYTHONSCRIPT] Batch Image To Plane MS    dynamicID = 600000015   TEXT 4279 chars
+  …
+[PYTHONSCRIPT] untitled                       dynamicID = 600000053   SCRIPTPATH = ''
 ```
 
-**The `main()` correction.** v2 of this plan specified "call `main()` if defined". That was wrong twice over:
+18 script nodes, 7 folder nodes, 25 total. Nesting is arbitrary-depth and recursion works.
 
-- **MEASURED:** Script Manager does *not* call `main()` automatically. Probe 1 defined `main()` and never called it; it never ran.
-- All four scripts in this repo end with `if __name__ == '__main__': main()`, and `__name__` **is** `'__main__'`. So they self-call — and a runner that also called `main()` would have **executed every one of them twice**. For `Batch_Current_State_to_Object.py` that means duplicating every generated object.
+**Per node:** `GetName()` (the display name), `GetType()` (`ID_PYTHONSCRIPT` 1026256 / `ID_SCRIPTFOLDER` 1026688), `PYTHONSCRIPT_SCRIPTPATH` (absolute path), `PYTHONSCRIPT_TEXT` (full source, in memory), `GetDynamicScriptID(node)` (command ID; `-1` for folders).
 
-Correct behaviour is to replicate Script Manager exactly: set `__name__`, exec, and stop. A script that defines `main()` without calling it does not run under Script Manager either, so fidelity is the right target.
+Three findings that matter:
 
-**Still open — undo (V5).** If C4D does not wrap our `exec` the way it wraps Script Manager execution, the runner must wrap it; wrapping when C4D already does produces nested, broken undo. `UNDOTYPE_NEW = 44` is `MEASURED`. This is the one remaining answer that can cost a user real work.
+**1. The `PYTHONSCRIPT_*` metadata fields are all empty — correction.** After probe 2 I said native metadata gave us "name + help + path" and that §6 should adopt it. That was wrong. Probe 3 read every node: `SCRIPTNAME`, `SCRIPTHELP`, `SHOWINMENU`, `SCRIPTENABLE`, `ADDEVENT` are **`None` on every single node**. Only `SCRIPTPATH` and `TEXT` are populated. Those constants evidently belong to the Python Generator / Python Tag objects, not to Script Manager entries. **There is no native place to store a description, and no native header convention to adopt.** Descriptions and tags are entirely ours to design and store.
 
-**Compatibility gate:** the four existing scripts must run unchanged. That is Phase 2's acceptance test.
+**2. `dynamicID` looks positional, which is a risk.** IDs run `600000013 … 600000029` in exact tree-walk order, contiguous. That strongly suggests they are assigned by traversal index at load, not persisted per script. If so, **adding, deleting or renaming a script shifts every subsequent ID**, and any Command Manager hotkey bound to one would silently start firing a different script. This must be tested before hotkeys are built on it (§7). If IDs are unstable, hotkeys go back to being hard.
 
----
+**3. The tree contains unsaved editor buffers.** The `untitled` node has `SCRIPTPATH = ''` and 5322 chars of text — the Script Manager's open buffer. Any consumer must filter nodes with an empty path, or the panel will list phantom entries.
 
-## 4. The "smart" layer
-
-Categories plus tags alone is a file browser. These earn the build:
-
-1. **Frecency ranking** — `frequency × recency` decay. Highest value per line of code.
-2. **Command palette** — one hotkey, type three characters, `Enter` runs. Likely beats the browser panel for daily use; consider shipping it first.
-3. **Fuzzy / subsequence matching** — `fmn` matches `Fix_Mixamo_Names`.
-4. **Auto-tagging via AST** — derive tags from imports and attribute chains (`c4d.modules.mograph`, `BaseObject`, `CTrack`). Zero authoring effort on the initial library.
-5. **Context-awareness** — boost or disable entries against scene state. Note `op` is `None` when nothing is selected (`MEASURED`), so preconditions must handle that.
-6. **Destructive guard** — confirm before running scripts marked destructive.
-7. **Parameters (stretch)** — a declared parameter spec generates a small dialog, so one script replaces a family of near-duplicates.
+**Also available:** `SetActiveScriptObject` (display a script in Script Manager — i.e. "open in editor"), `GeExecuteFile` / `GeExecuteProgram` (cross-platform open/reveal, replacing per-OS branching), `LoadPythonScript`, `CreateNewPythonScript` (both untested, both probably unnecessary now).
 
 ---
 
-## 5. Indexing — safety and performance
+## 3. Execution — one question left
 
-**Safety rule (non-negotiable): indexing must never import or exec a script.** Read the text, parse with `ast.parse`, extract the header. Scanning a folder must never run code. This rules out "import the module and read `__tags__`".
+`OPEN`, and it is the last blocking unknown: **does `c4d.CallCommand(GetDynamicScriptID(node))` run the script?**
 
-**Budget:** cold scan of 1000 scripts < 2 s; warm open < 100 ms. Cache key `(path, mtime, size)`; re-parse only on change. If the cold scan misses budget, move it to a `C4DThread` (`MEASURED` present) and populate progressively rather than blocking the UI.
+- **If yes** — delete `runner.py` entirely. C4D executes the script through its own command path, which means correct `doc`/`op` injection, correct `main()` semantics, and correct undo, all for free. V5 stops mattering.
+- **If no** — fall back to the hand-rolled runner, corrected per V3/V4: set `__name__ = '__main__'`, set `__file__` to the real path, inject `doc` and `op` but **not** `c4d`, `exec` the source, **do not call `main()`**, restore `sys.path`, `EventAdd()`. And V5 becomes blocking again.
 
-**Collisions:** key by absolute path; disambiguate same-named scripts in the UI by parent folder.
+`tools/phase0_probe3_scripttree.py` has this behind `CALL_COMMAND_TEST` (default off, since it runs a real script). Flip it on a scratch scene.
 
 ---
 
-## 6. Metadata — pending §2
+## 4. What to actually build
 
-Source of truth = an inline header in each script: travels with the file, survives moves, diffs in git, shared for free on clone. That remains the argument for §0 option A.
+Layered over the native registry, not replacing it:
 
-**But the exact header syntax is now blocked on probe 2.** If `GetScriptHead` / `SCRIPTMETA_*` define a native convention, adopt it and extend it only where it falls short (tags, category, preconditions). Only invent a `# @key: value` grammar if there is nothing native to build on.
+1. **Panel** — `GeDialog` + `TreeViewCustomGui`, mirroring the registry tree, with a search field.
+2. **Fuzzy search** — `fmn` matches `Fix_Mixamo_Names`. At 18 scripts this alone is most of the value.
+3. **Tags** — the one thing C4D has no answer for. Stored by us, keyed by absolute path.
+4. **Descriptions** — likewise ours, since `SCRIPTHELP` is dead.
+5. **Favourites + frecency** — cheap once tags exist, though with 18 scripts ranking matters far less than it would at 500.
+6. **Command palette** — hotkey, type, `Enter`. Plausibly the highest daily value; consider shipping it first.
+7. **Duplicate detection** — see §5.
 
-Either way: unknown keys ignored (forward-compatible); missing header degrades gracefully to filename + folder path, since **none of the four existing scripts has one**. Runtime fields (`run_count`, `last_run`, `favorite`) live only in the index, keyed by path, never written back into source.
+Dropped from earlier versions as over-built for this library: AST auto-tagging, `@needs` preconditions, parameter dialogs, thumbnails. Revisit only if the library grows.
+
+---
+
+## 5. The problem the library actually shows
+
+The registry contains two clear duplicate pairs:
+
+- `OpenPose Sequence Generator From Selected Joints` — **17981 chars**
+- `OpenPose_Sequence_Generator_From_Selected_Joints` — **21495 chars**
+
+Different sizes: these are two *versions*, not two copies. Same story with `Mixamo_Helper_06` and `Universal_Rig_Normalizer_v3` — version numbers in filenames. And `Fix_Mixamo_Names.py` exists both here and in the C4D library.
+
+**No amount of tagging fixes "which of these two is current?"** A tag browser would let you find both faster and still not tell you which to run. So a small, concrete feature earns its place: flag same-stem scripts, show size/mtime/diff, offer to archive one. That may be worth more than the tagging system.
+
+---
+
+## 6. Metadata storage
+
+Since nothing native exists (§2, finding 1):
+
+- **Tags, descriptions, favourites, run counts** live in one `library.json` under the resolved user library path, keyed by **absolute script path**, carrying `"schema": 1` and a migration function.
+- Optional: mirror tags into a `# @tags:` header inside each `.py` so they survive to git and to other machines. Header parsing must use `ast` / plain text — **indexing must never import or exec a script.**
+- Paths as keys are fragile across moves. Acceptable at this scale; note it and re-key on rename when detected.
 
 ---
 
@@ -151,91 +126,52 @@ Either way: unknown keys ignored (forward-compatible); missing header degrades g
 
 ```
 plugin/
-  script_browser.pyp          # CommandData registration + dialog wiring
-  core/                       # zero c4d imports — testable anywhere
-    scanner.py                # walk roots, mtime cache, incremental reindex
-    metadata.py               # header parse + ast auto-tagging
-    model.py                  # Script / Category / Tag / Library dataclasses
-    store.py                  # index.json + settings.json, schema migration
-    search.py                 # fuzzy match + filters + frecency rank
+  script_browser.pyp      # CommandData + dialog wiring
+  core/                   # zero c4d imports — plain pytest
+    tags.py               # library.json load/save/migrate
+    search.py             # fuzzy match + filter + rank
+    dupes.py              # same-stem detection (§5)
   ui/
-    panel.py                  # GeDialog: tree + list + search + actions
-    palette.py                # command palette
-    meta_editor.py            # header editor
-  runner.py                   # §3
-  res/                        # icons, strings
+    panel.py              # GeDialog + TreeView + search
+    palette.py            # command palette
+  registry.py             # c4d-bound: walk GetScriptHead, filter empty paths
 ```
 
-`core/` ↔ `c4d` separation is the main testability decision: all logic runs under plain pytest with no C4D present.
+No `scanner.py`, no `model.py`, no `store.py` for the index, and probably no `runner.py`. Two registered plugin IDs needed (panel + palette) rather than a reserved block of ~100 — **unless `dynamicID` proves unstable**, in which case per-script hotkeys need rethinking from scratch.
 
-**Dockability:** open with `GeDialog.Open(c4d.DLG_TYPE_ASYNC, pluginid, …)` and implement `CommandData.RestoreLayout()`, or the docked panel vanishes on restart.
-
-**Storage:** `index.json` + `settings.json` under the resolved user library path, both carrying `"schema": 1` and a migration function from day one.
+Dockability still requires `CommandData.RestoreLayout()`, or the panel vanishes on restart.
 
 ---
 
-## 8. Plugin IDs (procurement blocker — start now)
+## 8. Testing
 
-- IDs must be **registered at developers.maxon.net** against your Maxon account. Arbitrary IDs collide with other plugins and corrupt prefs. **Only you can request these.**
-- Need: 1 for the CommandData, 1 for the palette, plus a reserved block (~50–100) for hotkey slots.
-- **Per-script hotkeys** need one registered `CommandData` ID each, registered at plugin-load time. Design: a fixed block of slot IDs; the user assigns *script → slot*; the slot binds in Command Manager like any command. Assignments persist in `settings.json`. (Probe 2 checks `GetDynamicScriptID`, which may offer a supported alternative.)
+`core/` is C4D-free and runs under pytest anywhere, including CI — worth a GitHub Action. `registry.py` and the UI need manual verification in C4D against a versioned smoke checklist.
 
 ---
 
-## 9. Testing
-
-| Layer | Method | Runs where |
-|---|---|---|
-| `core/` | pytest, fixtures from `scripts/` | anywhere, incl. CI |
-| runner semantics | probes 1 and 2 | manual, in C4D |
-| `c4d`-touching code | `c4dpy` (`ASSUME` needs a license) or a stubbed `c4d` | dev machine |
-| UI | manual smoke checklist, versioned in repo | in C4D |
-
-Add a GitHub Action running pytest on `core/` — the only part testable automatically.
-
----
-
-## 10. UX
-
-Search focused on open · type-to-filter · ↑/↓ navigate · `Enter` run · `Ctrl+Enter` open in editor · `Esc` clear then close · `Ctrl+F` favourite. Sort: frecency (default) / name / recent / category. Tag chips click-to-filter, shift-click to AND.
-
-Errors surface in three places: C4D console (full traceback), panel status line (one line), rolling log file.
-
-Reveal-in-folder and open-in-editor go through `c4d.storage.GeExecuteFile` / `GeExecuteProgram` (`MEASURED` present) rather than per-OS branching.
-
----
-
-## 11. Phases and acceptance criteria
+## 9. Phases
 
 | Phase | Deliverable | Done when |
 |---|---|---|
-| **0** | probes 1-3 in `tools/` | V1–V4, V6 done; probe 2 done. **Remaining: probe 3 (does `CallCommand(dynamicID)` run a script?), and V5 undo — which becomes moot if it does.** |
-| **1** | `core/` + tests | pytest green; indexes the four headerless scripts; 1000-script cold scan < 2 s |
-| **2** | Panel + palette + runner | all four scripts run unchanged and exactly once; undo is a single step; panel docks and survives restart |
-| **3** | Tags, filters, favourites, frecency, metadata editor | any script in a 30-script library found in < 3 keystrokes |
-| **4** | Auto-tag, preconditions, destructive guard, hotkey slots, thumbnails | a Command Manager hotkey fires a script |
-| **5** (stretch) | Parameter dialogs | one parameterised script replaces a family |
+| **0** | probes 1–3 | Two answers left: `CallCommand` execution, and `dynamicID` stability |
+| **1** | `registry.py` + `core/search.py` + read-only panel | panel lists all 18 scripts in tree order, phantom `untitled` filtered, fuzzy search works, double-click runs |
+| **2** | Tags, descriptions, favourites, `library.json` | tag the library and find any script in < 3 keystrokes |
+| **3** | Command palette | hotkey → 3 chars → `Enter` runs |
+| **4** | Duplicate detection (§5) | the two OpenPose versions are surfaced with sizes and dates |
+| **5** | Per-script hotkeys | **only if `dynamicID` proves stable** |
 
 ---
 
-## 12. Repo restructure (Phase 1)
+## 10. Repo cleanup (independent of the plugin)
 
-Move the four scripts into `scripts/<Category>/` and add headers. Fix `List_Hiearchy.py` → `List_Hierarchy.py`. Rename `OpenPose Sequence Generator From Selected Joints.py` (spaces complicate paths and shortcuts). Rewrite `README.md`, which currently documents only the hierarchy printer. Keep `plugin/` and `scripts/` separate so the plugin releases independently.
-
----
-
-## 13. Distribution
-
-Folder (`ScriptBrowser/script_browser.pyp` + `res/`), zipped per release; install by dropping into the plugins dir and restarting. `ASSUME` 2024/2025 work too if all are Python 3.11 — claim it only after testing each.
+Fix `List_Hiearchy.py` → `List_Hierarchy.py`. Rename `OpenPose Sequence Generator From Selected Joints.py` (spaces complicate paths and shortcuts) and reconcile it against the two library versions. Rewrite `README.md`, which currently documents only the hierarchy printer.
 
 ---
 
-## 14. Open questions
+## 11. Open questions
 
-1. **Probe 3** — does `CallCommand(GetDynamicScriptID(node))` run a script? If yes, §3 and §8 both largely disappear and the project is re-scoped around the native registry.
-2. **Scope, given 17 scripts** (§2): is this a browser problem or a deduplication problem? Honest answer may shrink the build considerably.
-3. **V5** — press Ctrl+Z twice in the probe-1 scene and report which nulls vanish. Moot if probe 3 succeeds and we never hand-roll execution.
-4. **§0** — is the Asset Browser already enough? (an hour of hands-on)
-5. Build on the native registry, or index the filesystem independently? (probe 3 decides; native looks strongly preferable)
-6. Ship the command palette before the browser panel?
-7. Target 2026 only, or 2024/2025 as well?
+1. **`CallCommand(dynamicID)` — does it run the script?** Decides whether §3 exists at all. Flip `CALL_COMMAND_TEST` in probe 3 on a scratch scene.
+2. **Is `dynamicID` stable?** Add a script, restart C4D, re-run probe 3, compare IDs. Decides whether per-script hotkeys are feasible.
+3. **Is this a search problem or a duplication problem (§5)?** Honest answer may make §4's tag system secondary to §4.7.
+4. Still worth an hour in the Asset Browser before building anything.
+5. Ship the command palette before the panel?

@@ -23,6 +23,7 @@ import traceback
 import c4d
 
 CALL_COMMAND_TEST = False
+TARGET_NAME = "Zero_Out"
 
 PARAMS = (
     ("SCRIPTNAME", c4d.PYTHONSCRIPT_SCRIPTNAME),
@@ -136,11 +137,10 @@ print("  runner is needed at all. If CallCommand(dynamicID) runs the script,")
 print("  C4D handles execution AND undo, and the runner can be deleted.")
 print("")
 if not CALL_COMMAND_TEST:
-    print("  SKIPPED. Set CALL_COMMAND_TEST = True to try it.")
-    print("  WARNING: this RUNS a script. Pick a harmless one first by setting")
-    print("  TARGET_NAME below, and use a scratch scene.")
+    print("  SKIPPED. Set CALL_COMMAND_TEST = True (top of file) to try it.")
+    print("  WARNING: this RUNS the script named by TARGET_NAME. Use a scratch")
+    print("  scene (Ctrl+N) so it has nothing to damage.")
 else:
-    TARGET_NAME = "Zero_Out"
     target = None
     for n in nodes:
         try:
