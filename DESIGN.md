@@ -164,7 +164,9 @@ Dockability still requires `CommandData.RestoreLayout()`, or the panel vanishes 
 
 ## 10. Repo cleanup (independent of the plugin)
 
-Fix `List_Hiearchy.py` → `List_Hierarchy.py`. Rename `OpenPose Sequence Generator From Selected Joints.py` (spaces complicate paths and shortcuts) and reconcile it against the two library versions. Rewrite `README.md`, which currently documents only the hierarchy printer.
+Fix `List_Hiearchy.py` → `List_Hierarchy.py`. Rename `OpenPose Sequence Generator From Selected Joints.py` (spaces complicate paths and shortcuts) and reconcile it against the two library versions.
+
+`README.md` — **done on `main`.** An earlier revision of this plan claimed it "documents only the hierarchy printer"; that was wrong. It carried sections for three of the four scripts, appended without an index. It has been restructured with an intro and contents table, all existing text preserved, and `Batch_Current_State_to_Object.py` documented for the first time. One discrepancy surfaced and is now flagged in the README: the OpenPose notes describe **v4.1** while the script file header reads **v4.5**.
 
 ---
 
