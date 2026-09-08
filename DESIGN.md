@@ -40,25 +40,37 @@ Recommendation stands: **A**, for the git-tracked plain-file model and the ranki
 
 ---
 
-## 2. The script API surface (new — probe 2 pending)
+## 2. C4D's native script registry (probe 2 — this reframes the project)
 
-Probe 1's V6 scan found that C4D already models scripts as first-class objects:
+`GetScriptHead()` returns a live **`c4d.GeListHead`** (`MEASURED`): C4D maintains its own tree of script objects. Probe 2 confirmed the surrounding model:
 
-- **Callables:** `c4d.LoadPythonScript`, `c4d.CreateNewPythonScript`, `c4d.GetScriptHead`, `c4d.GetDynamicScriptID`, `c4d.SetActiveScriptObject`
-- **Container schema:** `PYTHONSCRIPT_SCRIPTPATH`, `PYTHONSCRIPT_TEXT`, `PYTHONSCRIPT_SCRIPTNAME`, `PYTHONSCRIPT_SCRIPTHELP`, `PYTHONSCRIPT_SHOWINMENU`, `PYTHONSCRIPT_SCRIPTENABLE`, `PYTHONSCRIPT_ADDEVENT`
-- **Metadata constants:** `SCRIPTMETA_NAME`, `SCRIPTMETA_DOCUMENTATION`
-- **Identity/registry:** `ID_SCRIPTFOLDER`, `ID_PYTHONSCRIPT`, `IDENTIFYFILE_SCRIPT`, `SCRIPT_CONTEXT_SCRIPT_MANAGER`
-- **Messages:** `MSG_SCRIPT_EXECUTE`, `MSG_INVOKE_SCRIPT_FUNCTION`, `MSG_MULTI_SCRIPTINFO`, `MSG_SCRIPT_RETRIEVEBITMAP`
-- **Process helpers:** `c4d.storage.GeExecuteFile`, `c4d.storage.GeExecuteProgram`
+| Native mechanism | What it provides | What §7 planned to build |
+|---|---|---|
+| `GetScriptHead()` → `GeListHead` | the script index itself | `scanner.py` |
+| `ID_SCRIPTFOLDER` (1026688) nodes | a folder/category tree | `Category` model |
+| `ID_PYTHONSCRIPT` (1026256) nodes | per-script objects | `Script` model |
+| `PYTHONSCRIPT_SCRIPTNAME` / `_SCRIPTHELP` / `_SCRIPTPATH` / `_TEXT` | name, documentation, path, body | half of `metadata.py` |
+| `PYTHONSCRIPT_SHOWINMENU` / `_SCRIPTENABLE` | visibility, enable/disable | — |
+| `GetDynamicScriptID(bl)` → command ID | **per-script command IDs, already assigned** | the whole of §8's reserved ID block |
+| `SetActiveScriptObject` | "display in Script Manager" | "open in editor" |
+| `GeExecuteFile` / `GeExecuteProgram` | cross-platform open/reveal | per-OS branching in §10 |
 
-Two consequences, both material:
+**This is most of the plumbing.** If probe 3 confirms the tree walks and `CallCommand(GetDynamicScriptID(node))` runs a script, then C4D already supplies the index, the category tree, the metadata store, execution, and per-script hotkeys — and this project shrinks to what C4D genuinely lacks: **tags, fuzzy search, frecency ranking and a better panel**, layered over the native registry rather than a parallel one.
 
-1. **`GetScriptHead` + `SCRIPTMETA_NAME` / `SCRIPTMETA_DOCUMENTATION` suggest C4D already has a script-header convention.** If so, §6 should adopt it rather than invent `# @title:` / `# @desc:`. Inventing a second convention alongside a native one would be a mistake.
-2. **`LoadPythonScript` and `MSG_SCRIPT_EXECUTE` may make the hand-rolled runner in §3 unnecessary** — or at least give a supported path with correct undo behaviour for free.
+Consequences already firm:
 
-`tools/phase0_probe2_scriptapi.py` introspects all of this. **Run it before writing any runner code.** It is read-only by default; `CALL_LOAD_PYTHON_SCRIPT` is opt-in because that call's signature is unknown and it may replace Script Manager editor contents.
+- **§8's plugin-ID procurement blocker likely dissolves** for per-script hotkeys. `GetDynamicScriptID` hands out the IDs.
+- **§3's hand-rolled runner may be deletable**, taking the V5 undo risk with it — if C4D runs the script through its own command path, undo is C4D's problem, correctly, for free.
+- **§6 partially resolved.** Native metadata is name + help + path. Tags and categories-beyond-folders are still ours to add. `SCRIPTMETA_NAME` / `SCRIPTMETA_DOCUMENTATION` exist but are not a file-header convention — no evidence C4D parses `.py` headers.
+- `LoadPythonScript` ("Load a python script") and `CreateNewPythonScript` ("Create a new temporary python script") remain untested.
 
-`GeExecuteFile` / `GeExecuteProgram` also replace the planned `os.startfile` / `open -R` branching for "open in editor" and "reveal in file browser" with something cross-platform and native.
+`tools/phase0_probe3_scripttree.py` walks the tree and reads every node's parameters. **Run it before writing any code.**
+
+### Scale correction
+
+The user library holds **17 scripts**, several of them duplicates or version-suffixed (`Fix_Mixamo_Names.py` in two places, `OpenPose…` in both spaced and underscored form, `Mixamo_Helper_06`, `Universal_Rig_Normalizer_v3`).
+
+At 17 scripts, the §5 performance budget (1000 scripts, cold scan < 2 s) is over-engineering, and frecency ranking has little to rank. The real pain the library shows is **duplication and versioning**, not search latency. This weakens the case for a heavy indexed browser and strengthens §0 option C. Worth confronting before Phase 1.
 
 ---
 
@@ -197,7 +209,7 @@ Reveal-in-folder and open-in-editor go through `c4d.storage.GeExecuteFile` / `Ge
 
 | Phase | Deliverable | Done when |
 |---|---|---|
-| **0** | `tools/phase0_probe.py`, `tools/phase0_probe2_scriptapi.py` | V1–V4, V6 done. **Remaining: V5 undo, and probe 2's verdict on whether §3's runner is needed at all.** |
+| **0** | probes 1-3 in `tools/` | V1–V4, V6 done; probe 2 done. **Remaining: probe 3 (does `CallCommand(dynamicID)` run a script?), and V5 undo — which becomes moot if it does.** |
 | **1** | `core/` + tests | pytest green; indexes the four headerless scripts; 1000-script cold scan < 2 s |
 | **2** | Panel + palette + runner | all four scripts run unchanged and exactly once; undo is a single step; panel docks and survives restart |
 | **3** | Tags, filters, favourites, frecency, metadata editor | any script in a 30-script library found in < 3 keystrokes |
@@ -220,9 +232,10 @@ Folder (`ScriptBrowser/script_browser.pyp` + `res/`), zipped per release; instal
 
 ## 14. Open questions
 
-1. **§0 first**: is the Asset Browser already enough? (an hour of hands-on before building)
-2. **V5**: press Ctrl+Z twice in the probe scene and report which nulls vanish.
-3. **Probe 2**: does `LoadPythonScript` execute or merely load? Does `GetScriptHead` define a native metadata convention?
-4. Index roots: native scripts folder, this repo, or configurable? (recommend configurable, seeded with both)
-5. Ship the command palette before the browser panel?
-6. Target 2026 only, or 2024/2025 as well?
+1. **Probe 3** — does `CallCommand(GetDynamicScriptID(node))` run a script? If yes, §3 and §8 both largely disappear and the project is re-scoped around the native registry.
+2. **Scope, given 17 scripts** (§2): is this a browser problem or a deduplication problem? Honest answer may shrink the build considerably.
+3. **V5** — press Ctrl+Z twice in the probe-1 scene and report which nulls vanish. Moot if probe 3 succeeds and we never hand-roll execution.
+4. **§0** — is the Asset Browser already enough? (an hour of hands-on)
+5. Build on the native registry, or index the filesystem independently? (probe 3 decides; native looks strongly preferable)
+6. Ship the command palette before the browser panel?
+7. Target 2026 only, or 2024/2025 as well?
