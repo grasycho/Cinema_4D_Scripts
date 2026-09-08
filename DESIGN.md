@@ -205,7 +205,7 @@ Cross-platform: `os.startfile` (Win) vs `open -R` (macOS) for reveal-in-finder; 
 
 | Phase | Deliverable | Done when |
 |---|---|---|
-| **0** | V1–V6 probe script | all six assumptions answered in writing, this doc updated |
+| **0** | V1–V6 probe script — `tools/phase0_probe.py` | all six assumptions answered in writing, this doc updated |
 | **1** | `core/` + tests | pytest green; indexes the 4 existing headerless scripts correctly; cold scan of 1000 synthetic scripts < 2 s |
 | **2** | Panel + palette + runner | all 4 existing scripts run unchanged; undo behaves as a single step; panel docks and survives C4D restart |
 | **3** | Tags, filters, favourites, frecency, metadata editor | tag a 30-script library and find any of them in < 3 keystrokes |
