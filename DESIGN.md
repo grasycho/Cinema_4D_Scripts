@@ -117,8 +117,26 @@ Different sizes: these are two *versions*, not two copies. Same story with `Mixa
 Since nothing native exists (§2, finding 1):
 
 - **Tags, descriptions, favourites, run counts** live in one `library.json` under the resolved user library path, keyed by **absolute script path**, carrying `"schema": 1` and a migration function.
-- Optional: mirror tags into a `# @tags:` header inside each `.py` so they survive to git and to other machines. Header parsing must use `ast` / plain text — **indexing must never import or exec a script.**
+- **Sidecar files by basename** carry per-script icon and description — see §6a. Header parsing, where used, must be `ast` / plain text: **indexing must never import or exec a script.**
 - Paths as keys are fragile across moves. Acceptable at this scale; note it and re-key on rename when detected.
+
+### 6a. Prior art — the user's own After Effects launcher
+
+[`Script-Launcher-for-After-Effects`](https://github.com/grasycho/Script-Launcher-for-After-Effects) (`ScriptLauncher v4`) is this exact product, already built and shipped for After Effects. It should be treated as the reference design, because matching it gives one mental model across both applications rather than two.
+
+What it already settled, and this plan should follow:
+
+| ScriptLauncher v4 convention | Consequence for the C4D plugin |
+|---|---|
+| **Icon = image file with the same basename** (`MyScript.jsx` → `MyScript.png`) | Adopt verbatim. Replaces the invented `@icon:` header key |
+| **Description = `.txt` file with the same basename**, first line used as the tooltip | **Adopt verbatim.** This replaces the invented `# @desc:` header entirely — the user already has a convention, and it needs no file parsing at all |
+| **Favourites + Recent tabs**, with a configurable recent count | Simpler than the frecency ranking in §4, and already proven in daily use. Ship favourites/recent first; treat ranking as optional |
+| **Settings in a JSON file beside the tool** | Matches `library.json`; keep the same shape where practical |
+| **Execution wrapped in a single undo group** (`app.beginUndoGroup`) | The AE side deliberately makes each run one undo step. The C4D runner should give the same guarantee — which is what V5 is asking |
+| Custom scripts folder, chosen in a settings dialog | Confirms the configurable-roots decision |
+| Dual list / icon-grid view, as-you-type search | Directly reusable UI model |
+
+**Tags are the one thing ScriptLauncher does not have.** Combined with §5, that sharpens the C4D plugin's purpose: match the launcher the user already knows, then add the tagging and duplicate-detection it lacks — rather than designing a different tool.
 
 ---
 
