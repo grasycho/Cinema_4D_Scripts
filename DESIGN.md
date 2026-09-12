@@ -163,7 +163,7 @@ Dockability still requires `CommandData.RestoreLayout()`, or the panel vanishes 
 
 ## 8. Testing
 
-`core/` is C4D-free and runs under pytest anywhere, including CI — worth a GitHub Action. `registry.py` and the UI need manual verification in C4D against a versioned smoke checklist.
+`core/` is C4D-free and runs under pytest anywhere, including CI. **Done:** `plugin/tests/` covers `search`, `tags` and `dupes` (56 tests), and `.github/workflows/core-tests.yml` runs them on Python 3.11 — the version C4D 2026.3.0.4 bundles. `registry.py` and the UI need manual verification in C4D against a versioned smoke checklist.
 
 ---
 
@@ -172,10 +172,10 @@ Dockability still requires `CommandData.RestoreLayout()`, or the panel vanishes 
 | Phase | Deliverable | Done when |
 |---|---|---|
 | **0** | probes 1–3 | Two answers left: `CallCommand` execution, and `dynamicID` stability |
-| **1** | `registry.py` + `core/search.py` + read-only panel | panel lists all 18 scripts in tree order, phantom `untitled` filtered, fuzzy search works, double-click runs |
-| **2** | Tags, descriptions, favourites, `library.json` | tag the library and find any script in < 3 keystrokes |
+| **1** | `registry.py` + `core/search.py` + read-only panel | `core/search.py` **done** (`fmn` → `Fix_Mixamo_Names`, ranked, tested). Remaining: `registry.py` and the panel — both need C4D |
+| **2** | Tags, descriptions, favourites, `library.json` | `core/tags.py` **done** (schema 1, atomic save, favourites, recent, rekey, tested). Remaining: the tagging UI |
 | **3** | Command palette | hotkey → 3 chars → `Enter` runs |
-| **4** | Duplicate detection (§5) | the two OpenPose versions are surfaced with sizes and dates |
+| **4** | Duplicate detection (§5) | `core/dupes.py` **done** (same-stem grouping, version-suffix stripping, newest first, tested). Remaining: the surfacing UI and the archive action |
 | **5** | Per-script hotkeys | **only if `dynamicID` proves stable** |
 
 ---

@@ -1,0 +1,19 @@
+name: core tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # Matches Cinema 4D 2026.3.0.4's bundled interpreter (DESIGN.md section 1).
+          python-version: "3.11"
+      - run: pip install pytest
+      - run: python -m pytest -q
+        working-directory: plugin
