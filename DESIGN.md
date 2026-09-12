@@ -1,6 +1,6 @@
 # Smart Script Browser — Cinema 4D 2026 Plugin (Research & Plan)
 
-Status: planning, **v4 — re-scoped after Phase 0**. Probes 1–3 have run against the real install.
+Status: **v5 — implemented.** Phases 1–4 are written and the plugin is complete; probes 1–3 have run against the real install. Everything C4D-free is unit-tested (87 tests); the dialogs are unverified until `plugin/SMOKE.md` is run inside the application.
 Target: **Cinema 4D 2026.3.0.4** (`GetC4DVersion() = 2026304`), Windows, Python 3.11.4.
 
 Legend: `MEASURED` = confirmed on the target machine. `OPEN` = still unanswered.
@@ -74,7 +74,7 @@ Three findings that matter:
 
 ## 3. Execution — one question left
 
-`OPEN`, and it is the last blocking unknown: **does `c4d.CallCommand(GetDynamicScriptID(node))` run the script?**
+`OPEN`, but **no longer blocking**: `registry.run()` tries `c4d.CallCommand(GetDynamicScriptID(node))` first and falls back to the hand-rolled runner, so the plugin works either way. The flag is `registry.PREFER_CALL_COMMAND`, and the *Execution* section of `plugin/SMOKE.md` decides its value in about a minute of real use. The original question stands: **does `c4d.CallCommand(GetDynamicScriptID(node))` run the script?**
 
 - **If yes** — delete `runner.py` entirely. C4D executes the script through its own command path, which means correct `doc`/`op` injection, correct `main()` semantics, and correct undo, all for free. V5 stops mattering.
 - **If no** — fall back to the hand-rolled runner, corrected per V3/V4: set `__name__ = '__main__'`, set `__file__` to the real path, inject `doc` and `op` but **not** `c4d`, `exec` the source, **do not call `main()`**, restore `sys.path`, `EventAdd()`. And V5 becomes blocking again.
@@ -163,7 +163,9 @@ Dockability still requires `CommandData.RestoreLayout()`, or the panel vanishes 
 
 ## 8. Testing
 
-`core/` is C4D-free and runs under pytest anywhere, including CI. **Done:** `plugin/tests/` covers `search`, `tags` and `dupes` (56 tests), and `.github/workflows/core-tests.yml` runs them on Python 3.11 — the version C4D 2026.3.0.4 bundles. `registry.py` and the UI need manual verification in C4D against a versioned smoke checklist.
+`core/` is C4D-free and runs under pytest anywhere, including CI. **Done:** `plugin/tests/` covers `search`, `tags`, `dupes` and `sidecars`, and also `registry.py` and `ui/state.py` — those two run against `tests/c4d_stub.py`, a fake `c4d` module built to the tree shape probe 3 measured. 87 tests; `.github/workflows/core-tests.yml` runs them on Python 3.11, the version C4D 2026.3.0.4 bundles.
+
+The stub proves the tree walk, the empty-path filter, the fallback runner's `__name__`/`__file__`/no-`main()` semantics, and every scope. It proves nothing about C4D itself: the dialogs are verified by hand against `plugin/SMOKE.md`, which is versioned and re-run after any change to `registry.py` or `ui/`.
 
 ---
 
@@ -171,11 +173,11 @@ Dockability still requires `CommandData.RestoreLayout()`, or the panel vanishes 
 
 | Phase | Deliverable | Done when |
 |---|---|---|
-| **0** | probes 1–3 | Two answers left: `CallCommand` execution, and `dynamicID` stability |
-| **1** | `registry.py` + `core/search.py` + read-only panel | `core/search.py` **done** (`fmn` → `Fix_Mixamo_Names`, ranked, tested). Remaining: `registry.py` and the panel — both need C4D |
-| **2** | Tags, descriptions, favourites, `library.json` | `core/tags.py` **done** (schema 1, atomic save, favourites, recent, rekey, tested). Remaining: the tagging UI |
-| **3** | Command palette | hotkey → 3 chars → `Enter` runs |
-| **4** | Duplicate detection (§5) | `core/dupes.py` **done** (same-stem grouping, version-suffix stripping, newest first, tested). Remaining: the surfacing UI and the archive action |
+| **0** | probes 1–3 | **Done.** `CallCommand` execution is now answered by the smoke checklist rather than a probe, and no longer blocks; `dynamicID` stability gates Phase 5 alone |
+| **1** | `registry.py` + `core/search.py` + panel | **Done.** Tree walk filters unsaved buffers; `fmn` → `Fix_Mixamo_Names`, ranked; panel searches as you type |
+| **2** | Tags, descriptions, favourites, `library.json` | **Done.** Schema 1, atomic save, favourites and recent scopes, detail editor, `.txt` sidecar fallback |
+| **3** | Command palette | **Done.** `ui/palette.py` — hotkey, type, `Enter` runs the top hit |
+| **4** | Duplicate detection (§5) | **Done** as a scope in the panel. The archive action is deliberately not built: deleting a script is the user's call, and Reveal is enough |
 | **5** | Per-script hotkeys | **only if `dynamicID` proves stable** |
 
 ---
@@ -190,8 +192,8 @@ Fix `List_Hiearchy.py` → `List_Hierarchy.py`. Rename `OpenPose Sequence Genera
 
 ## 11. Open questions
 
-1. **`CallCommand(dynamicID)` — does it run the script?** Decides whether §3 exists at all. Flip `CALL_COMMAND_TEST` in probe 3 on a scratch scene.
-2. **Is `dynamicID` stable?** Add a script, restart C4D, re-run probe 3, compare IDs. Decides whether per-script hotkeys are feasible.
+1. **`CallCommand(dynamicID)` — does it run the script?** No longer blocking: both paths ship and `registry.PREFER_CALL_COMMAND` picks one. Answer it from the *Execution* section of `plugin/SMOKE.md`; if a script runs twice or not at all, set the flag `False`.
+2. **Is `dynamicID` stable?** Add a script, restart C4D, re-run probe 3, compare IDs. Gates Phase 5 only — nothing shipped persists a `dynamicID`, so an unstable one cannot corrupt stored metadata.
 3. **Is this a search problem or a duplication problem (§5)?** Honest answer may make §4's tag system secondary to §4.7.
 4. Still worth an hour in the Asset Browser before building anything.
 5. Ship the command palette before the panel?
