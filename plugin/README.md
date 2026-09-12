@@ -11,11 +11,24 @@ Target: **Cinema 4D 2026.3.0.4**, Windows, bundled Python 3.11.4.
 
 ## Install
 
-1. Copy this whole `plugin` folder into your C4D `plugins` directory, e.g.
-   `%APPDATA%\MAXON\Maxon Cinema 4D 2026_<hash>\plugins\script_browser\`.
-   The folder name carries an installation hash — take the real path from
-   *Edit → Preferences → Open Preferences Folder*, never type a version string.
-2. Restart Cinema 4D.
+1. Copy this whole folder, named `script_browser`, into the `plugins` folder of
+   your C4D preferences directory:
+
+   ```
+   %APPDATA%\Maxon\Maxon Cinema 4D 2026_<hash>\plugins\script_browser\
+   ```
+
+   The preferences folder name carries an installation hash — `1ABCDC12` on the
+   machine this was built against. **Never type it from a version string**: open
+   the real path with *Edit → Preferences → Open Preferences Folder*. Create the
+   `plugins` subfolder if it is not there.
+
+   Installing under `C:\Program Files\Maxon Cinema 4D 2026\plugins` also works
+   but Maxon advises against it: it needs administrator rights and an upgrade
+   wipes it. To share one copy across several C4D versions, put the folder
+   anywhere you like and add it under *Preferences → Plugins → Add Folder*.
+2. Restart Cinema 4D. `script_browser.pyp` puts its own directory on
+   `sys.path`, so `core/` and `ui/` resolve wherever the folder lives.
 3. Two new commands appear in the Command Manager:
    - **Script Browser** — the dockable panel.
    - **Run Script** — the command palette. Bind it to a hotkey; it is the one
